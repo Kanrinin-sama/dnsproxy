@@ -220,6 +220,13 @@ type CustomUpstreamConfig struct {
 	//
 	// TODO(d.kolyshev): Move this cache to [UpstreamConfig].
 	cache *cache
+
+	// upstreamMode overrides [Config.UpstreamMode] for this client.  Empty
+	// means inherit the global value.
+	upstreamMode UpstreamMode
+
+	// ecs indicates whether EDNS Client Subnet is enabled for this client.
+	ecs bool
 }
 
 // NewCustomUpstreamConfig returns new custom upstream configuration.
@@ -228,6 +235,7 @@ func NewCustomUpstreamConfig(
 	cacheEnabled bool,
 	cacheSize int,
 	enableEDNSClientSubnet bool,
+	mode UpstreamMode,
 ) (c *CustomUpstreamConfig) {
 	var customCache *cache
 	if cacheEnabled {
@@ -240,9 +248,27 @@ func NewCustomUpstreamConfig(
 	}
 
 	return &CustomUpstreamConfig{
-		upstream: u,
-		cache:    customCache,
+		upstream:     u,
+		cache:        customCache,
+		upstreamMode: mode,
+		ecs:          enableEDNSClientSubnet,
 	}
+}
+
+// ECSEnabled reports whether ECS is enabled for this client configuration.
+// A nil receiver reports false.
+func (c *CustomUpstreamConfig) ECSEnabled() (ok bool) {
+	return c != nil && c.ecs
+}
+
+// Mode returns the client's upstream mode, or the empty string to inherit the
+// proxy-wide mode.  A nil receiver returns the empty string.
+func (c *CustomUpstreamConfig) Mode() (m UpstreamMode) {
+	if c == nil {
+		return ""
+	}
+
+	return c.upstreamMode
 }
 
 // Close closes the custom upstream config.

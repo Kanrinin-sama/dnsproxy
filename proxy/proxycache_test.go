@@ -163,3 +163,19 @@ func TestTruncateECS(t *testing.T) {
 	got = truncateECS(mustCIDR(t, "2001:db8::/32"), 24, 56)
 	require.Equal(t, "2001:db8::/32", got.String())
 }
+
+func TestCache_perClientECSOverridesGlobal(t *testing.T) {
+	// Global ECS on, but this client has it off: it must use the general
+	// cache, not the subnet cache.
+	p := mustNew(t, &Config{
+		Logger:                 testLogger,
+		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		EnableEDNSClientSubnet: true,
+		CacheEnabled:           true,
+		CacheSizeBytes:         64 * 1024,
+	})
+
+	cfg := NewCustomUpstreamConfig(nil, true, 64*1024, false, "")
+	require.False(t, p.ecsForContext(&DNSContext{CustomUpstreamConfig: cfg}))
+	require.True(t, p.ecsForContext(&DNSContext{}))
+}

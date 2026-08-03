@@ -15,6 +15,16 @@ func (p *Proxy) cacheForContext(d *DNSContext) (c *cache) {
 	return p.cache
 }
 
+// ecsForContext reports whether ECS handling applies to d, preferring the
+// client's own setting over the proxy-wide one.
+func (p *Proxy) ecsForContext(d *DNSContext) (ok bool) {
+	if d.CustomUpstreamConfig != nil {
+		return d.CustomUpstreamConfig.ECSEnabled()
+	}
+
+	return p.enableEDNSClientSubnet
+}
+
 // replyFromCache tries to get the response from general or subnet cache.  In
 // case the cache is present in d, it's used first.  Returns true on success.  d
 // must not be nil.
@@ -26,8 +36,8 @@ func (p *Proxy) replyFromCache(ctx context.Context, d *DNSContext) (hit bool) {
 	var expired bool
 	var key []byte
 
-	// TODO(d.kolyshev): Use EnableEDNSClientSubnet from dctxCache.
-	if p.enableEDNSClientSubnet && d.ReqECS != nil {
+	ecsEnabled := p.ecsForContext(d)
+	if ecsEnabled && d.ReqECS != nil {
 		ci, expired, key = dctxCache.getWithSubnet(d.Req, d.ReqECS)
 		cacheSource = "subnet cache"
 	} else {
@@ -46,7 +56,7 @@ func (p *Proxy) replyFromCache(ctx context.Context, d *DNSContext) (hit bool) {
 		ctx,
 		"replying from cache",
 		"source", cacheSource,
-		"ecs_enabled", p.enableEDNSClientSubnet,
+		"ecs_enabled", ecsEnabled,
 	)
 
 	if dctxCache.optimistic && expired {
@@ -84,7 +94,7 @@ func cloneIPNet(n *net.IPNet) (clone *net.IPNet) {
 func (p *Proxy) cacheResp(d *DNSContext) {
 	dctxCache := p.cacheForContext(d)
 
-	if !p.enableEDNSClientSubnet {
+	if !p.ecsForContext(d) {
 		dctxCache.set(d.Req, d.Res, d.Upstream, p.logger)
 
 		return

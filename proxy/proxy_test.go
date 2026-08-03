@@ -154,6 +154,7 @@ func newCustomUpstreamConfig(ups upstream.Upstream, enabled bool) (c *proxy.Cust
 		enabled,
 		0,
 		false,
+		"",
 	)
 }
 

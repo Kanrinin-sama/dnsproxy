@@ -619,6 +619,7 @@ func TestProxy_Resolve_exchangeCustomUpstreamConfig(t *testing.T) {
 			false,
 			0,
 			false,
+			"",
 		),
 		Req:  dnsproxytest.NewTestRequest(),
 		Addr: netip.MustParseAddrPort("192.0.2.0:1234"),
@@ -673,6 +674,7 @@ func TestProxy_Resolve_customUpstreamConfigCache(t *testing.T) {
 		true,
 		dnsproxytest.CacheSize,
 		prx.enableEDNSClientSubnet,
+		"",
 	)
 
 	d := &DNSContext{

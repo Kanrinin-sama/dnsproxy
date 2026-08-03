@@ -17,6 +17,7 @@ import (
 	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newUpstreamWithErrorRate returns an [upstream.Upstream] that responds with an
@@ -236,4 +237,96 @@ func TestProxy_Exchange_loadBalance(t *testing.T) {
 			assert.Equal(t, wantStat, stats)
 		})
 	}
+}
+
+func TestExchange_customUpstreamConfigOverridesMode(t *testing.T) {
+	p := mustNew(t, &Config{
+		Logger:         testLogger,
+		UpstreamMode:   UpstreamModeLoadBalance,
+		UpstreamConfig: newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+	})
+
+	cfg := NewCustomUpstreamConfig(nil, false, 0, false, UpstreamModeFastestAddr)
+	d := &DNSContext{CustomUpstreamConfig: cfg}
+
+	require.Equal(t, UpstreamModeFastestAddr, p.modeForContext(d))
+
+	// Unset on the client falls back to the global mode.
+	plain := NewCustomUpstreamConfig(nil, false, 0, false, "")
+	require.Equal(t, UpstreamModeLoadBalance, p.modeForContext(&DNSContext{CustomUpstreamConfig: plain}))
+
+	// No custom config at all also falls back.
+	require.Equal(t, UpstreamModeLoadBalance, p.modeForContext(&DNSContext{}))
+}
+
+// TestExchange_customUpstreamConfigMode_reachesExchange proves that a
+// per-client [UpstreamModeFastestAddr] override actually changes which
+// exchange strategy runs, not merely that [Proxy.modeForContext] resolves to
+// the right value.  Fastest-addr queries every upstream concurrently via
+// [upstream.ExchangeAll]; load-balance queries exactly one.
+func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
+	ansIP := net.IP{1, 2, 3, 4}
+	newCountingUpstream := func(name string, count *int) (u upstream.Upstream) {
+		return &dnsproxytest.Upstream{
+			OnExchange: func(m *dns.Msg) (resp *dns.Msg, err error) {
+				*count++
+
+				resp = (&dns.Msg{}).SetReply(m)
+				resp.Answer = append(resp.Answer, &dns.A{
+					Hdr: dns.RR_Header{
+						Name:   m.Question[0].Name,
+						Class:  dns.ClassINET,
+						Rrtype: dns.TypeA,
+						Ttl:    defaultTestTTL,
+					},
+					A: ansIP,
+				})
+
+				return resp, nil
+			},
+			OnAddress: func() (addr string) { return name },
+			OnClose:   func() (_ error) { panic(testutil.UnexpectedCall()) },
+		}
+	}
+
+	var count1, count2 int
+	ups := []upstream.Upstream{
+		newCountingUpstream("one", &count1),
+		newCountingUpstream("two", &count2),
+	}
+
+	p := mustNew(t, &Config{
+		Logger:         testLogger,
+		UpstreamMode:   UpstreamModeLoadBalance,
+		UpstreamConfig: &UpstreamConfig{Upstreams: ups},
+	})
+
+	cli := netip.MustParseAddrPort("1.2.3.0:1234")
+
+	// A client with the fastest-addr override reaches every upstream.
+	fastest := NewCustomUpstreamConfig(
+		&UpstreamConfig{Upstreams: ups},
+		false,
+		0,
+		false,
+		UpstreamModeFastestAddr,
+	)
+	err := p.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), &DNSContext{
+		CustomUpstreamConfig: fastest,
+		Req:                  newHostTestMessage("host"),
+		Addr:                 cli,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, count1)
+	require.Equal(t, 1, count2)
+
+	// A client with no override falls back to the proxy-wide load-balance
+	// mode, which queries exactly one upstream.
+	count1, count2 = 0, 0
+	err = p.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), &DNSContext{
+		Req:  newHostTestMessage("host"),
+		Addr: cli,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, count1+count2)
 }

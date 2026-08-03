@@ -12,15 +12,26 @@ import (
 	"gonum.org/v1/gonum/stat/sampleuv"
 )
 
+// modeForContext returns the upstream mode to use for d: the client's own
+// mode when set, otherwise the proxy-wide mode.
+func (p *Proxy) modeForContext(d *DNSContext) (m UpstreamMode) {
+	if m = d.CustomUpstreamConfig.Mode(); m != "" {
+		return m
+	}
+
+	return p.upstreamMode
+}
+
 // exchangeUpstreams resolves req using the given upstreams.  It returns the DNS
 // response, the upstream that successfully resolved the request, and the error
-// if any.
+// if any.  mode is the resolved upstream mode to use, see [Proxy.modeForContext].
 func (p *Proxy) exchangeUpstreams(
 	ctx context.Context,
 	req *dns.Msg,
 	ups []upstream.Upstream,
+	mode UpstreamMode,
 ) (resp *dns.Msg, u upstream.Upstream, err error) {
-	switch p.upstreamMode {
+	switch mode {
 	case UpstreamModeParallel:
 		return upstream.ExchangeParallel(ctx, ups, req)
 	case UpstreamModeFastestAddr:
