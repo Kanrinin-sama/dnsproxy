@@ -868,6 +868,76 @@ func TestProxy_Resolve_ecs(t *testing.T) {
 	})
 }
 
+// TestECSProxy_perClientOverride proves that Resolve's ECS attachment step —
+// not just its cache-path selection — honours a per-client override: a client
+// with a public address and ECSEnabled() false must reach the upstream with
+// no ECS option even though the proxy-wide setting is on, and the same client
+// with it true must reach the upstream with one.
+func TestECSProxy_perClientOverride(t *testing.T) {
+	ansIP := net.IP{4, 3, 2, 1}
+	u := &testUpstream{
+		ans: []dns.RR{&dns.A{
+			Hdr: dns.RR_Header{Rrtype: dns.TypeA, Name: "host.", Ttl: 60},
+			A:   ansIP,
+		}},
+	}
+
+	prx := mustNew(t, &Config{
+		Logger: testLogger,
+		UpstreamConfig: &UpstreamConfig{
+			Upstreams: []upstream.Upstream{u},
+		},
+		EnableEDNSClientSubnet: true,
+	})
+
+	// A public-looking client address; see [netutil.IsSpecialPurpose].
+	cli := netip.MustParseAddrPort("1.2.3.0:1234")
+
+	t.Run("client_ecs_disabled", func(t *testing.T) {
+		u.ecsReqIP, u.ecsReqMask = nil, 0
+
+		cfg := NewCustomUpstreamConfig(
+			&UpstreamConfig{Upstreams: []upstream.Upstream{u}},
+			false,
+			0,
+			false,
+			"",
+		)
+		d := &DNSContext{
+			CustomUpstreamConfig: cfg,
+			Req:                  newHostTestMessage("host"),
+			Addr:                 cli,
+		}
+
+		err := prx.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), d)
+		require.NoError(t, err)
+
+		assert.Nil(t, u.ecsReqIP)
+	})
+
+	t.Run("client_ecs_enabled", func(t *testing.T) {
+		u.ecsReqIP, u.ecsReqMask = nil, 0
+
+		cfg := NewCustomUpstreamConfig(
+			&UpstreamConfig{Upstreams: []upstream.Upstream{u}},
+			false,
+			0,
+			true,
+			"",
+		)
+		d := &DNSContext{
+			CustomUpstreamConfig: cfg,
+			Req:                  newHostTestMessage("host"),
+			Addr:                 cli,
+		}
+
+		err := prx.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), d)
+		require.NoError(t, err)
+
+		assert.Equal(t, net.IP{1, 2, 3, 0}, u.ecsReqIP)
+	})
+}
+
 func TestProxy_Resolve_ecsProxyCacheMinMaxTTL(t *testing.T) {
 	clientIP := net.IP{1, 2, 3, 0}
 

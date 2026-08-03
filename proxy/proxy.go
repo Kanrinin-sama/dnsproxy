@@ -478,12 +478,15 @@ func New(c *Config) (p *Proxy, err error) {
 	}
 
 	p.upstreamMode = cmp.Or(p.upstreamMode, UpstreamModeLoadBalance)
-	if p.upstreamMode == UpstreamModeFastestAddr {
-		p.fastestAddr = fastip.New(&fastip.Config{
-			Logger:          p.logger,
-			PingWaitTimeout: p.fastestPingTimeout,
-		})
-	}
+
+	// fastestAddr is built unconditionally: a per-client CustomUpstreamConfig
+	// may resolve to [UpstreamModeFastestAddr] via [Proxy.modeForContext] even
+	// when the global mode is something else, and exchangeUpstreams must not
+	// call ExchangeFastest on a nil receiver in that case.
+	p.fastestAddr = fastip.New(&fastip.Config{
+		Logger:          p.logger,
+		PingWaitTimeout: p.fastestPingTimeout,
+	})
 
 	if bindRetries := c.BindRetryConfig; bindRetries != nil && bindRetries.Enabled {
 		p.bindRetryCount = bindRetries.Count
@@ -904,7 +907,7 @@ const defaultUDPBufSize = 2048
 // upstream servers.  If err is nil, dctx.Res is guaranteed to be non-nil.  dctx
 // must not be nil and must be filled with the client's request.
 func (p *Proxy) Resolve(ctx context.Context, dctx *DNSContext) (err error) {
-	if p.enableEDNSClientSubnet {
+	if p.ecsForContext(dctx) {
 		dctx.processECS(p.ednsAddr, p.logger)
 	}
 

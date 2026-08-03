@@ -265,8 +265,12 @@ func TestExchange_customUpstreamConfigOverridesMode(t *testing.T) {
 // the right value.  Fastest-addr queries every upstream concurrently via
 // [upstream.ExchangeAll]; load-balance queries exactly one.
 func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
-	ansIP := net.IP{1, 2, 3, 4}
-	newCountingUpstream := func(name string, count *int) (u upstream.Upstream) {
+	// The two upstreams must answer with distinct addresses: fastip.pingAll
+	// takes a shortcut for a single deduplicated IP (returns immediately,
+	// success, no field access on the receiver at all), which would let this
+	// test pass even against a nil p.fastestAddr and prove nothing about the
+	// exchange path actually running.
+	newCountingUpstream := func(name string, ip net.IP, count *int) (u upstream.Upstream) {
 		return &dnsproxytest.Upstream{
 			OnExchange: func(m *dns.Msg) (resp *dns.Msg, err error) {
 				*count++
@@ -279,7 +283,7 @@ func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
 						Rrtype: dns.TypeA,
 						Ttl:    defaultTestTTL,
 					},
-					A: ansIP,
+					A: ip,
 				})
 
 				return resp, nil
@@ -291,14 +295,18 @@ func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
 
 	var count1, count2 int
 	ups := []upstream.Upstream{
-		newCountingUpstream("one", &count1),
-		newCountingUpstream("two", &count2),
+		newCountingUpstream("one", net.IP{1, 2, 3, 4}, &count1),
+		newCountingUpstream("two", net.IP{5, 6, 7, 8}, &count2),
 	}
 
 	p := mustNew(t, &Config{
-		Logger:         testLogger,
-		UpstreamMode:   UpstreamModeLoadBalance,
-		UpstreamConfig: &UpstreamConfig{Upstreams: ups},
+		Logger: testLogger,
+		// Keep the ping wait short: these addresses aren't reachable from the
+		// test environment, and the fastest-addr path falls back to the first
+		// reply once the wait expires.
+		FastestPingTimeout: 50 * time.Millisecond,
+		UpstreamMode:       UpstreamModeLoadBalance,
+		UpstreamConfig:     &UpstreamConfig{Upstreams: ups},
 	})
 
 	cli := netip.MustParseAddrPort("1.2.3.0:1234")
