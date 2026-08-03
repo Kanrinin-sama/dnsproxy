@@ -106,6 +106,21 @@ type Config struct {
 	// If not specified the [proxy.UpstreamModeLoadBalance] is used.
 	UpstreamMode UpstreamMode
 
+	// TrustUpstreamScope makes the cache honour a SCOPE PREFIX-LENGTH of zero
+	// from the upstream as "valid for all addresses", per RFC 7871 Section
+	// 7.3.1.  Forwarding resolvers that zero the scope while still returning
+	// geo-specific answers (Quad9 does) make this unsafe, so it defaults to
+	// false.
+	TrustUpstreamScope bool
+
+	// CacheECSPrefix4 is the IPv4 prefix length used to key subnet cache
+	// entries when the upstream scope is not trusted.  Defaults to 24.
+	CacheECSPrefix4 uint8
+
+	// CacheECSPrefix6 is the IPv6 equivalent of CacheECSPrefix4.  Defaults
+	// to 56.
+	CacheECSPrefix6 uint8
+
 	// UDPListenAddr is the set of UDP addresses to listen for plain
 	// DNS-over-UDP requests.
 	UDPListenAddr []*net.UDPAddr

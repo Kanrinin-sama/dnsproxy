@@ -127,12 +127,48 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 
 		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, ecs, p.logger)
 	case d.ReqECS != nil:
-		// Cache the response for all subnets since the server doesn't support
-		// EDNS Client Subnet option.
-		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, &net.IPNet{IP: nil, Mask: nil}, p.logger)
+		// The upstream returned no usable ECS data: either it doesn't support
+		// the option at all, or it reported a SCOPE PREFIX-LENGTH we can't
+		// tell apart from that (e.g. a zeroed scope; see [ecsFromMsg]).
+		if p.TrustUpstreamScope {
+			// Trust that silence the same way an explicit SCOPE PREFIX-LENGTH
+			// of zero is trusted above: valid for all addresses.  This is the
+			// pre-existing behavior, kept as the default.
+			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, &net.IPNet{IP: nil, Mask: nil}, p.logger)
+
+			break
+		}
+
+		// Some forwarding resolvers (Quad9 among them) return geo-specific
+		// answers while reporting no usable scope, which would otherwise
+		// poison the wildcard entry for every other client.  Key on the
+		// request's own subnet instead; see [Config.TrustUpstreamScope].
+		key := truncateECS(d.ReqECS, p.CacheECSPrefix4, p.CacheECSPrefix6)
+		p.logger.Debug("caching response keyed on request subnet", "ecs", key)
+		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, p.logger)
 	default:
 		dctxCache.set(d.Req, d.Res, d.Upstream, p.logger)
 	}
+}
+
+// truncateECS returns n narrowed to the configured prefix length for its
+// family.  It never widens: a request already narrower than the configured
+// prefix is returned unchanged.
+func truncateECS(n *net.IPNet, prefix4, prefix6 uint8) (out *net.IPNet) {
+	ones, bits := n.Mask.Size()
+
+	want := int(prefix4)
+	if bits > net.IPv4len*8 {
+		want = int(prefix6)
+	}
+
+	if ones <= want {
+		return n
+	}
+
+	mask := net.CIDRMask(want, bits)
+
+	return &net.IPNet{IP: n.IP.Mask(mask), Mask: mask}
 }
 
 // ClearCache clears the DNS cache of p.

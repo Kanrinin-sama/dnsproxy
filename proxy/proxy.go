@@ -464,6 +464,8 @@ func New(c *Config) (p *Proxy, err error) {
 
 	p.cacheOptimisticAnswerTTL = cmp.Or(p.cacheOptimisticAnswerTTL, DefaultOptimisticAnswerTTL)
 	p.cacheOptimisticMaxAge = cmp.Or(p.cacheOptimisticMaxAge, DefaultOptimisticMaxAge)
+	p.cacheECSPrefix4 = cmp.Or(p.cacheECSPrefix4, uint8(24))
+	p.cacheECSPrefix6 = cmp.Or(p.cacheECSPrefix6, uint8(56))
 
 	p.initCache()
 
