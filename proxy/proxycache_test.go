@@ -79,6 +79,71 @@ func TestCacheResp_trustScope_keepsWildcard(t *testing.T) {
 	require.True(t, p.replyFromCache(dB), "wildcard entry must be visible to all clients")
 }
 
+func TestCacheResp_echoedScopeZero_keysOnRequestSubnet(t *testing.T) {
+	p := mustNew(t, &Config{
+		Logger:                 testLogger,
+		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		EnableEDNSClientSubnet: true,
+		CacheEnabled:           true,
+		CacheSizeBytes:         64 * 1024,
+		TrustUpstreamScope:     false,
+		CacheECSPrefix4:        24,
+	})
+
+	req := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeA)
+
+	// Client A in 203.0.113.0/24 — upstream echoes the SUBNET option with
+	// SOURCE=24 (matching the request, as [setECS] always does for IPv4) but
+	// SCOPE=0, which RFC 7871 Section 7.3.1 defines as "valid for all
+	// addresses".  This is the shape Quad9 (9.9.9.11) actually returns.
+	resp := (&dns.Msg{}).SetReply(req)
+	resp.Answer = []dns.RR{newA(t, "example.com.", "1.2.3.4")}
+	setECS(resp, net.ParseIP("203.0.113.0"), 0)
+
+	dA := &DNSContext{Req: req, Res: resp, ReqECS: mustCIDR(t, "203.0.113.0/24")}
+	p.cacheResp(dA)
+
+	// Client B in 198.51.100.0/24 must NOT see A's entry.
+	dB := &DNSContext{Req: req, ReqECS: mustCIDR(t, "198.51.100.0/24")}
+	require.False(t, p.replyFromCache(dB), "client B must not hit client A's cache entry")
+
+	// Client A must still hit its own.
+	dA2 := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.113.0/24")}
+	require.True(t, p.replyFromCache(dA2), "client A must hit its own cache entry")
+}
+
+func TestCacheResp_honestPartialScope_stillWidens(t *testing.T) {
+	p := mustNew(t, &Config{
+		Logger:                 testLogger,
+		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		EnableEDNSClientSubnet: true,
+		CacheEnabled:           true,
+		CacheSizeBytes:         64 * 1024,
+		// Must not matter: a non-zero scope is trusted regardless of this
+		// setting.
+		TrustUpstreamScope: false,
+		CacheECSPrefix4:    24,
+	})
+
+	req := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeA)
+
+	// Client A in 203.0.113.0/24 — upstream reports an honest partial scope
+	// of /23, one bit broader than the request (e.g. Google returns
+	// /24/23).  This must widen exactly as it did before TrustUpstreamScope
+	// existed; a non-zero scope is not the "valid for all addresses" claim.
+	resp := (&dns.Msg{}).SetReply(req)
+	resp.Answer = []dns.RR{newA(t, "example.com.", "1.2.3.4")}
+	setECS(resp, net.ParseIP("203.0.113.0"), 23)
+
+	dA := &DNSContext{Req: req, Res: resp, ReqECS: mustCIDR(t, "203.0.113.0/24")}
+	p.cacheResp(dA)
+
+	// A neighbouring /24 that falls within the reported /23 must see the
+	// entry.
+	dC := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.112.0/24")}
+	require.True(t, p.replyFromCache(dC), "neighbouring /24 within the reported /23 scope must hit the entry")
+}
+
 func TestTruncateECS(t *testing.T) {
 	got := truncateECS(mustCIDR(t, "203.0.113.55/32"), 24, 56)
 	require.Equal(t, "203.0.113.0/24", got.String())

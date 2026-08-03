@@ -106,11 +106,15 @@ type Config struct {
 	// If not specified the [proxy.UpstreamModeLoadBalance] is used.
 	UpstreamMode UpstreamMode
 
-	// TrustUpstreamScope makes the cache honour a SCOPE PREFIX-LENGTH of zero
-	// from the upstream as "valid for all addresses", per RFC 7871 Section
-	// 7.3.1.  Forwarding resolvers that zero the scope while still returning
-	// geo-specific answers (Quad9 does) make this unsafe, so it defaults to
-	// false.
+	// TrustUpstreamScope makes the cache honour the upstream's claim that a
+	// response is valid for all addresses: either a SCOPE PREFIX-LENGTH of
+	// zero in an echoed EDNS Client Subnet option, per RFC 7871 Section
+	// 7.3.1, or the option being absent from the response entirely.
+	// Forwarding resolvers that zero the scope while still returning
+	// geo-specific answers (Quad9 does) make trusting either of these
+	// unsafe, so it defaults to false.  A non-zero SCOPE PREFIX-LENGTH is
+	// always honoured regardless of this setting; only the "valid for all
+	// addresses" claim is distrusted.
 	TrustUpstreamScope bool
 
 	// CacheECSPrefix4 is the IPv4 prefix length used to key subnet cache

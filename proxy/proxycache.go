@@ -113,6 +113,21 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 			return
 		}
 
+		// A SCOPE PREFIX-LENGTH of zero is RFC 7871 Section 7.3.1's "valid for
+		// all addresses" claim.  Forwarding resolvers that echo it while
+		// still answering geo-specifically (Quad9 does) make that claim
+		// unsafe to trust by default; key on the request's own subnet
+		// instead.  A non-zero scope narrower than the request is a bounded,
+		// honest claim and is always honoured below, regardless of
+		// [Config.TrustUpstreamScope].
+		if scope == 0 && !p.TrustUpstreamScope {
+			key := truncateECS(d.ReqECS, p.CacheECSPrefix4, p.CacheECSPrefix6)
+			p.logger.Debug("caching response keyed on request subnet", "ecs", key)
+			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, p.logger)
+
+			break
+		}
+
 		// If SCOPE PREFIX-LENGTH is not longer than SOURCE PREFIX-LENGTH, store
 		// SCOPE PREFIX-LENGTH bits of ADDRESS, and then mark the response as
 		// valid for all addresses that fall within that range.
@@ -127,22 +142,22 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 
 		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, ecs, p.logger)
 	case d.ReqECS != nil:
-		// The upstream returned no usable ECS data: either it doesn't support
-		// the option at all, or it reported a SCOPE PREFIX-LENGTH we can't
-		// tell apart from that (e.g. a zeroed scope; see [ecsFromMsg]).
+		// The upstream's response carries no EDNS Client Subnet option at
+		// all, so there's no SCOPE PREFIX-LENGTH to go by.  A response that
+		// does echo the option, even with SCOPE=0, is handled above — this
+		// case is strictly "the upstream said nothing".
 		if p.TrustUpstreamScope {
-			// Trust that silence the same way an explicit SCOPE PREFIX-LENGTH
-			// of zero is trusted above: valid for all addresses.  This is the
-			// pre-existing behavior, kept as the default.
+			// Treat the absence of scope information the same way an
+			// explicit SCOPE PREFIX-LENGTH of zero is treated above: valid
+			// for all addresses.  This is the pre-existing behavior, kept as
+			// the default.
 			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, &net.IPNet{IP: nil, Mask: nil}, p.logger)
 
 			break
 		}
 
-		// Some forwarding resolvers (Quad9 among them) return geo-specific
-		// answers while reporting no usable scope, which would otherwise
-		// poison the wildcard entry for every other client.  Key on the
-		// request's own subnet instead; see [Config.TrustUpstreamScope].
+		// Key on the request's own subnet instead of caching for everyone;
+		// see [Config.TrustUpstreamScope].
 		key := truncateECS(d.ReqECS, p.CacheECSPrefix4, p.CacheECSPrefix6)
 		p.logger.Debug("caching response keyed on request subnet", "ecs", key)
 		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, p.logger)
