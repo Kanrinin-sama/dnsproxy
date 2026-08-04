@@ -18,6 +18,11 @@ func (p *Proxy) cacheForContext(d *DNSContext) (c *cache) {
 // ecsForContext reports whether ECS handling applies to d, preferring the
 // client's own setting over the proxy-wide one.
 func (p *Proxy) ecsForContext(d *DNSContext) (ok bool) {
+	// Unlike [CustomUpstreamConfig.Mode], whose zero value already means
+	// "inherit", [CustomUpstreamConfig.ECSEnabled] reports false for a nil
+	// receiver, which means "ECS off".  So the nil check can't be folded into
+	// the method: doing so would disable ECS for every client without a custom
+	// upstream configuration.
 	if d.CustomUpstreamConfig != nil {
 		return d.CustomUpstreamConfig.ECSEnabled()
 	}
