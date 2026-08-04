@@ -159,8 +159,12 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 		if p.TrustUpstreamScope {
 			// Treat the absence of scope information the same way an
 			// explicit SCOPE PREFIX-LENGTH of zero is treated above: valid
-			// for all addresses.  This is the pre-existing behavior, kept as
-			// the default.
+			// for all addresses.  This is the pre-existing behavior, but it
+			// is not the default: [Config.TrustUpstreamScope] defaults to
+			// false, so an existing configuration with ECS enabled starts
+			// keying such responses on the request's own subnet.  That only
+			// ever narrows the cache key, so the cost is hit rate, never a
+			// wrong answer.
 			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, &net.IPNet{IP: nil, Mask: nil}, p.logger)
 
 			break
