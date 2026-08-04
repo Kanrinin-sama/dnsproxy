@@ -266,6 +266,37 @@ func TestTruncateECS(t *testing.T) {
 	require.Equal(t, "2001:db8::/32", got.String())
 }
 
+// TestCacheResp_clientECSOnGlobalCache makes sure a client that enables ECS
+// while the proxy-wide setting is off doesn't write to a cache that has no
+// subnet cache at all.  Such a client has no custom cache of its own, so
+// [Proxy.cacheForContext] falls back to the proxy-wide one, which
+// [Proxy.initCache] built without a subnet cache.
+func TestCacheResp_clientECSOnGlobalCache(t *testing.T) {
+	p := mustNew(t, &Config{
+		Logger:         testLogger,
+		UpstreamConfig: newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		CacheEnabled:   true,
+		CacheSizeBytes: 64 * 1024,
+		// EnableEDNSClientSubnet is off, so p.cache has no subnet cache.
+	})
+
+	// The client has ECS on but no cache of its own.
+	cliConf := NewCustomUpstreamConfig(nil, false, 0, true, "")
+
+	req := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeA)
+	resp := (&dns.Msg{}).SetReply(req)
+	resp.Answer = []dns.RR{newA(t, "example.com.", "1.2.3.4")}
+
+	d := &DNSContext{
+		Req:                  req,
+		Res:                  resp,
+		ReqECS:               mustCIDR(t, "203.0.113.0/24"),
+		CustomUpstreamConfig: cliConf,
+	}
+
+	assert.NotPanics(t, func() { p.cacheResp(d) })
+}
+
 func TestCache_perClientECSOverridesGlobal(t *testing.T) {
 	// Global ECS on, but this client has it off: it must use the general
 	// cache, not the subnet cache.

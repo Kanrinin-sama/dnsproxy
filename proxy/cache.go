@@ -353,8 +353,14 @@ func (c *cache) set(req, m *dns.Msg, u upstream.Upstream, l *slog.Logger) {
 
 // setWithSubnet stores response and upstream with subnet in the cache.  The
 // given subnet mask and IP address are used to calculate the cache key.  u, n,
-// and l must not be nil.
+// and l must not be nil.  Nothing is stored if c has no subnet cache, which
+// happens when a client enables ECS for itself while the cache it falls back
+// to was built without one; see [Proxy.cacheForContext].
 func (c *cache) setWithSubnet(req, m *dns.Msg, u upstream.Upstream, n *net.IPNet, l *slog.Logger) {
+	if c.itemsWithSubnet == nil {
+		return
+	}
+
 	item := c.respToItem(m, u, l)
 	if item == nil {
 		return
