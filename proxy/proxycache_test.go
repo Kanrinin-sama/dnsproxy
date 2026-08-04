@@ -144,6 +144,51 @@ func TestCacheResp_honestPartialScope_stillWidens(t *testing.T) {
 	require.True(t, p.replyFromCache(dC), "neighbouring /24 within the reported /23 scope must hit the entry")
 }
 
+// TestCacheResp_longReqPrefix_truncatedKeyIsReadable makes sure a response
+// stored under the truncated request subnet is reachable by the
+// longest-prefix walk of [cache.getWithSubnet], which starts from the
+// untruncated request subnet.  The walk used to keep the high bit of the last
+// significant octet when it crossed a byte boundary, so for roughly half of
+// all addresses it never probed the key [Proxy.cacheResp] had written.
+func TestCacheResp_longReqPrefix_truncatedKeyIsReadable(t *testing.T) {
+	testCases := []struct {
+		name   string
+		reqECS string
+	}{{
+		name: "ipv4",
+		// The last octet is 200, i.e. its high bit is set, so the /25 probe
+		// leaves 203.0.113.128 behind when descending to /24.
+		reqECS: "203.0.113.200/32",
+	}, {
+		name: "ipv6",
+		// Likewise, the eighth octet is 0xFF, so the /57 probe leaves
+		// 2001:db8:1234:5680:: behind when descending to /56.
+		reqECS: "2001:db8:1234:56ff::1/128",
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := mustNew(t, &Config{
+				Logger:                 testLogger,
+				UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+				EnableEDNSClientSubnet: true,
+				CacheEnabled:           true,
+				CacheSizeBytes:         64 * 1024,
+				TrustUpstreamScope:     false,
+			})
+
+			req := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeA)
+			resp := (&dns.Msg{}).SetReply(req)
+			resp.Answer = []dns.RR{newA(t, "example.com.", "1.2.3.4")}
+
+			p.cacheResp(&DNSContext{Req: req, Res: resp, ReqECS: mustCIDR(t, tc.reqECS)})
+
+			d := &DNSContext{Req: req, ReqECS: mustCIDR(t, tc.reqECS)}
+			require.True(t, p.replyFromCache(d), "the truncated key must be readable")
+		})
+	}
+}
+
 func TestTruncateECS(t *testing.T) {
 	got := truncateECS(mustCIDR(t, "203.0.113.55/32"), 24, 56)
 	require.Equal(t, "203.0.113.0/24", got.String())

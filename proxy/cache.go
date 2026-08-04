@@ -282,15 +282,23 @@ func (c *cache) getWithSubnet(req *dns.Msg, n *net.IPNet) (ci *cacheItem, expire
 			continue
 		}
 
-		// Shift or renew bitmask.
+		// Clear the last non-zero bit in the byte of the IP address, shifting
+		// or renewing the bitmask.  On a byte boundary the whole byte m/8 must
+		// be cleared instead: the bitmask has just been exhausted by the
+		// previous iteration, and renewing it to all ones would leave that
+		// byte's high bit set.  The bounds check is for the very first
+		// iteration, where m is the full address length and m/8 points past
+		// the IP address.
 		if m%8 == 0 {
+			if m < ipLen*8 {
+				k[keyIPIndex+m/8] = 0
+			}
+
 			bitmask = ^byte(0)
 		} else {
 			bitmask <<= 1
+			k[keyIPIndex+m/8] &= bitmask
 		}
-
-		// Clear the last non-zero bit in the byte of the IP address.
-		k[keyIPIndex+m/8] &= bitmask
 
 		data = c.itemsWithSubnet.Get(k)
 	}
