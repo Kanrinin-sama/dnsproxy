@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -187,6 +188,62 @@ func TestCacheResp_longReqPrefix_truncatedKeyIsReadable(t *testing.T) {
 			require.True(t, p.replyFromCache(d), "the truncated key must be readable")
 		})
 	}
+}
+
+// TestCacheResp_cacheECSPrefix4_widensKey makes sure [Config.CacheECSPrefix4]
+// is actually read when the request subnet is used as the cache key: a /24
+// request stored under a configured /16 must be visible to every other /24
+// within that /16.
+func TestCacheResp_cacheECSPrefix4_widensKey(t *testing.T) {
+	p := mustNew(t, &Config{
+		Logger:                 testLogger,
+		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		EnableEDNSClientSubnet: true,
+		CacheEnabled:           true,
+		CacheSizeBytes:         64 * 1024,
+		TrustUpstreamScope:     false,
+		CacheECSPrefix4:        16,
+	})
+
+	req := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeA)
+	resp := (&dns.Msg{}).SetReply(req)
+	resp.Answer = []dns.RR{newA(t, "example.com.", "1.2.3.4")}
+
+	// The upstream returns no ECS, so the entry is keyed on the request subnet
+	// truncated to CacheECSPrefix4, i.e. 203.0.0.0/16.
+	p.cacheResp(&DNSContext{Req: req, Res: resp, ReqECS: mustCIDR(t, "203.0.113.0/24")})
+
+	dIn := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.99.0/24")}
+	assert.True(t, p.replyFromCache(dIn), "another /24 within the configured /16 must hit")
+
+	dOut := &DNSContext{Req: req, ReqECS: mustCIDR(t, "198.51.100.0/24")}
+	assert.False(t, p.replyFromCache(dOut), "a /24 outside the configured /16 must not hit")
+}
+
+// TestNew_defaultCacheECSPrefixes makes sure the ECS cache key widths are
+// defaulted when the configuration leaves them unset.
+func TestNew_defaultCacheECSPrefixes(t *testing.T) {
+	p := mustNew(t, &Config{
+		Logger:         testLogger,
+		UpstreamConfig: newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+	})
+
+	assert.Equal(t, uint8(24), p.CacheECSPrefix4)
+	assert.Equal(t, uint8(56), p.CacheECSPrefix6)
+}
+
+// TestSetECS_matchesDefaultCacheECSPrefixes makes sure the default cache key
+// widths stay equal to the network mask lengths [setECS] puts on outgoing
+// requests, so that a default cache key is never narrower than the subnet
+// actually sent upstream.
+func TestSetECS_matchesDefaultCacheECSPrefixes(t *testing.T) {
+	m4 := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeA)
+	ones, _ := setECS(m4, net.ParseIP("203.0.113.55"), 0).Mask.Size()
+	assert.Equal(t, int(DefaultCacheECSPrefix4), ones)
+
+	m6 := (&dns.Msg{}).SetQuestion("example.com.", dns.TypeAAAA)
+	ones, _ = setECS(m6, net.ParseIP("2001:db8::1"), 0).Mask.Size()
+	assert.Equal(t, int(DefaultCacheECSPrefix6), ones)
 }
 
 func TestTruncateECS(t *testing.T) {

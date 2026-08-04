@@ -28,6 +28,17 @@ const (
 	// DefaultOptimisticAnswerTTL is default value for
 	// [Config.CacheOptimisticAnswerTTL].
 	DefaultOptimisticAnswerTTL = 30 * time.Second
+
+	// DefaultCacheECSPrefix4 is default value for [Config.CacheECSPrefix4].  It
+	// must stay equal to the IPv4 network mask length [setECS] puts on outgoing
+	// requests, so that a cache key is never narrower than the subnet actually
+	// sent upstream.
+	DefaultCacheECSPrefix4 uint8 = 24
+
+	// DefaultCacheECSPrefix6 is default value for [Config.CacheECSPrefix6].  It
+	// must stay equal to the IPv6 network mask length [setECS] puts on outgoing
+	// requests.
+	DefaultCacheECSPrefix6 uint8 = 56
 )
 
 // Config contains all the fields necessary for proxy configuration.
@@ -118,11 +129,12 @@ type Config struct {
 	TrustUpstreamScope bool
 
 	// CacheECSPrefix4 is the IPv4 prefix length used to key subnet cache
-	// entries when the upstream scope is not trusted.  Defaults to 24.
+	// entries when the upstream scope is not trusted.  Defaults to
+	// [DefaultCacheECSPrefix4].
 	CacheECSPrefix4 uint8
 
-	// CacheECSPrefix6 is the IPv6 equivalent of CacheECSPrefix4.  Defaults
-	// to 56.
+	// CacheECSPrefix6 is the IPv6 equivalent of CacheECSPrefix4.  Defaults to
+	// [DefaultCacheECSPrefix6].
 	CacheECSPrefix6 uint8
 
 	// UDPListenAddr is the set of UDP addresses to listen for plain
