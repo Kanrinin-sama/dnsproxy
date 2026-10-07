@@ -1,11 +1,14 @@
 package proxy
 
 import (
+	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 
 	"github.com/AdguardTeam/dnscrypt"
+	"github.com/AdguardTeam/dnsproxy/proxyutil"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
@@ -95,11 +98,34 @@ type DNSContext struct {
 	hasEDNS0 bool
 
 	// doBit is the DNSSEC OK flag from request's EDNS0 RR if presented.
-	doBit bool
+	doBit      bool
+	logContext context.Context
 }
 
-// newDNSContext returns a new properly initialized *DNSContext.
-func (p *Proxy) newDNSContext(proto Proto, req *dns.Msg, addr netip.AddrPort) (d *DNSContext) {
+func (d *DNSContext) TrafficPath() proxyutil.TrafficPath {
+	if path := proxyutil.TrafficPathFromContext(d.logContext); path != "" {
+		return path
+	}
+	if d.CustomUpstreamConfig != nil {
+		return proxyutil.TrafficPathLAN
+	}
+	return proxyutil.TrafficPathWAN
+}
+
+func (d *DNSContext) ContextWithTrafficPath(ctx context.Context) context.Context {
+	if proxyutil.TrafficPathFromContext(ctx) == "" {
+		ctx = proxyutil.ContextWithTrafficPath(ctx, d.TrafficPath())
+	}
+	d.logContext = ctx
+	return ctx
+}
+
+func (d *DNSContext) requestLogger(logger *slog.Logger) *slog.Logger {
+	return proxyutil.LoggerWithTrafficPath(logger, d.TrafficPath())
+}
+
+// NewDNSContext returns a new properly initialized *DNSContext.
+func (p *Proxy) NewDNSContext(proto Proto, req *dns.Msg, addr netip.AddrPort) (d *DNSContext) {
 	return &DNSContext{
 		Proto: proto,
 		Req:   req,

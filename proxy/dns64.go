@@ -74,6 +74,10 @@ func (p *Proxy) setupDNS64(dns64Prefs netutil.SliceSubnetSet) (err error) {
 //
 // See https://datatracker.ietf.org/doc/html/rfc6147.
 func (p *Proxy) checkDNS64(req, resp *dns.Msg) (dns64Req *dns.Msg) {
+	return p.checkDNS64Context(context.Background(), req, resp)
+}
+
+func (p *Proxy) checkDNS64Context(ctx context.Context, req, resp *dns.Msg) (dns64Req *dns.Msg) {
 	if len(p.dns64Prefs) == 0 {
 		return nil
 	}
@@ -97,7 +101,7 @@ func (p *Proxy) checkDNS64(req, resp *dns.Msg) (dns64Req *dns.Msg) {
 		// only the AAAA record(s) that do not contain any of the addresses
 		// inside the excluded ranges.
 		var hasAnswers bool
-		if resp.Answer, hasAnswers = p.filterNAT64Answers(resp.Answer); hasAnswers {
+		if resp.Answer, hasAnswers = p.filterNAT64AnswersContext(ctx, resp.Answer); hasAnswers {
 			return nil
 		}
 	default:
@@ -116,6 +120,10 @@ func (p *Proxy) checkDNS64(req, resp *dns.Msg) (dns64Req *dns.Msg) {
 // exclusion prefixes.  hasAnswers is true if the filtered slice contains at
 // least a single AAAA answer not within the prefixes.
 func (p *Proxy) filterNAT64Answers(rrs []dns.RR) (filtered []dns.RR, hasAnswers bool) {
+	return p.filterNAT64AnswersContext(context.Background(), rrs)
+}
+
+func (p *Proxy) filterNAT64AnswersContext(ctx context.Context, rrs []dns.RR) (filtered []dns.RR, hasAnswers bool) {
 	return slices.DeleteFunc(rrs, func(rr dns.RR) (ok bool) {
 		ans, ok := rr.(*dns.AAAA)
 		if !ok {
@@ -124,9 +132,7 @@ func (p *Proxy) filterNAT64Answers(rrs []dns.RR) (filtered []dns.RR, hasAnswers 
 
 		addr, err := netutil.IPToAddrNoMapped(ans.AAAA)
 		if err != nil {
-			// TODO(e.burkov):  Use [slog.Logger.ErrorContext] when this
-			// function accepts a context.
-			p.logger.Error("bad aaaa record", slogutil.KeyError, err)
+			p.logger.ErrorContext(ctx, "bad aaaa record", slogutil.KeyError, err)
 
 			return true
 		}
@@ -145,6 +151,10 @@ func (p *Proxy) filterNAT64Answers(rrs []dns.RR) (filtered []dns.RR, hasAnswers 
 // basis and modifying it with data from resp.  It returns true if the response
 // was actually modified.
 func (p *Proxy) synthDNS64(origReq, origResp, resp *dns.Msg) (ok bool) {
+	return p.synthDNS64Context(context.Background(), origReq, origResp, resp)
+}
+
+func (p *Proxy) synthDNS64Context(ctx context.Context, origReq, origResp, resp *dns.Msg) (ok bool) {
 	if len(resp.Answer) == 0 {
 		// If there is an empty answer, then the DNS64 responds to the original
 		// querying client with the answer the DNS64 received to the original
@@ -167,7 +177,7 @@ func (p *Proxy) synthDNS64(origReq, origResp, resp *dns.Msg) (ok bool) {
 
 	newAns := make([]dns.RR, 0, len(resp.Answer))
 	for _, ans := range resp.Answer {
-		rr := p.synthRR(ans, soaTTL)
+		rr := p.synthRRContext(ctx, ans, soaTTL)
 		if rr == nil {
 			// The error should have already been logged.
 			return false
@@ -198,6 +208,10 @@ var dns64WellKnownPref = netip.MustParsePrefix("64:ff9b::/96")
 //
 // See https://datatracker.ietf.org/doc/html/rfc6147#section-5.3.1.
 func (p *Proxy) shouldStripDNS64(req *dns.Msg) (ok bool) {
+	return p.shouldStripDNS64Context(context.Background(), req)
+}
+
+func (p *Proxy) shouldStripDNS64Context(ctx context.Context, req *dns.Msg) (ok bool) {
 	if len(p.dns64Prefs) == 0 {
 		return false
 	}
@@ -210,16 +224,16 @@ func (p *Proxy) shouldStripDNS64(req *dns.Msg) (ok bool) {
 	host := q.Name
 	ip, err := netutil.IPFromReversedAddr(host)
 	if err != nil {
-		p.logger.Debug("failed to parse ip from ptr request", slogutil.KeyError, err)
+		p.logger.DebugContext(ctx, "failed to parse ip from ptr request", slogutil.KeyError, err)
 
 		return false
 	}
 
 	switch {
 	case p.dns64Prefs.Contains(ip):
-		p.logger.Debug("the ip is within dns64 custom prefix set", "ip", ip)
+		p.logger.DebugContext(ctx, "the ip is within dns64 custom prefix set", "ip", ip)
 	case dns64WellKnownPref.Contains(ip):
-		p.logger.Debug("the ip is within dns64 well-known prefix", "ip", ip)
+		p.logger.DebugContext(ctx, "the ip is within dns64 well-known prefix", "ip", ip)
 	default:
 		return false
 	}
@@ -250,6 +264,10 @@ func (p *Proxy) mapDNS64(addr netip.Addr) (mapped net.IP) {
 // a DNS64-synthesized AAAA records, and the TTL is set according to the
 // original TTL of a record and soaTTL.  It returns nil on invalid A records.
 func (p *Proxy) synthRR(rr dns.RR, soaTTL uint32) (result dns.RR) {
+	return p.synthRRContext(context.Background(), rr, soaTTL)
+}
+
+func (p *Proxy) synthRRContext(ctx context.Context, rr dns.RR, soaTTL uint32) (result dns.RR) {
 	aResp, ok := rr.(*dns.A)
 	if !ok {
 		return rr
@@ -257,7 +275,7 @@ func (p *Proxy) synthRR(rr dns.RR, soaTTL uint32) (result dns.RR) {
 
 	addr, err := netutil.IPToAddr(aResp.A, netutil.AddrFamilyIPv4)
 	if err != nil {
-		p.logger.Error("bad a record", slogutil.KeyError, err)
+		p.logger.ErrorContext(ctx, "bad a record", slogutil.KeyError, err)
 
 		return nil
 	}
@@ -289,7 +307,7 @@ func (p *Proxy) performDNS64(
 		return nil
 	}
 
-	dns64Req := p.checkDNS64(origReq, origResp)
+	dns64Req := p.checkDNS64Context(ctx, origReq, origResp)
 	if dns64Req == nil {
 		return nil
 	}
@@ -304,7 +322,7 @@ func (p *Proxy) performDNS64(
 		return nil
 	}
 
-	if dns64Resp != nil && p.synthDNS64(origReq, origResp, dns64Resp) {
+	if dns64Resp != nil && p.synthDNS64Context(ctx, origReq, origResp, dns64Resp) {
 		p.logger.DebugContext(ctx, "synthesized aaaa response", "host", host)
 
 		return u

@@ -170,11 +170,12 @@ func (p *Proxy) udpHandlePacket(
 		resp := p.messages.NewMsgFORMERR(req)
 		err = p.respondUDP(resp, conn, raddr, localIP)
 	} else {
-		d := p.newDNSContext(ProtoUDP, req, netutil.NetAddrToAddrPort(raddr))
+		d := p.NewDNSContext(ProtoUDP, req, netutil.NetAddrToAddrPort(raddr))
 		d.Conn = conn
 		d.localIP = localIP
 
 		err = p.handleDNSRequest(ctx, d)
+		l = d.requestLogger(l)
 	}
 	if err != nil {
 		l.DebugContext(ctx, "handling request", slogutil.KeyError, err)

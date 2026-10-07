@@ -243,7 +243,7 @@ func TestExchange_customUpstreamConfigOverridesMode(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:         testLogger,
 		UpstreamMode:   UpstreamModeLoadBalance,
-		UpstreamConfig: newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig: newTestUpstreamConfig(t, newTestUpstream(t)),
 	})
 
 	cfg := NewCustomUpstreamConfig(nil, false, 0, false, UpstreamModeFastestAddr)
@@ -271,8 +271,8 @@ func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
 	// test pass even against a nil p.fastestAddr and prove nothing about the
 	// exchange path actually running.
 	newCountingUpstream := func(name string, ip net.IP, count *int) (u upstream.Upstream) {
-		return &dnsproxytest.Upstream{
-			OnExchange: func(m *dns.Msg) (resp *dns.Msg, err error) {
+		return &testUpstream{
+			OnExchange: func(_ context.Context, m *dns.Msg) (resp *dns.Msg, err error) {
 				*count++
 
 				resp = (&dns.Msg{}).SetReply(m)
@@ -321,7 +321,7 @@ func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
 	)
 	err := p.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), &DNSContext{
 		CustomUpstreamConfig: fastest,
-		Req:                  newHostTestMessage("host"),
+		Req:                  dnsproxytest.NewTestRequestWithHost("host"),
 		Addr:                 cli,
 	})
 	require.NoError(t, err)
@@ -332,7 +332,7 @@ func TestExchange_customUpstreamConfigMode_reachesExchange(t *testing.T) {
 	// mode, which queries exactly one upstream.
 	count1, count2 = 0, 0
 	err = p.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), &DNSContext{
-		Req:  newHostTestMessage("host"),
+		Req:  dnsproxytest.NewTestRequestWithHost("host"),
 		Addr: cli,
 	})
 	require.NoError(t, err)

@@ -132,6 +132,7 @@ func TestProxy_Resolve_badResponse(t *testing.T) {
 			false,
 			0,
 			false,
+			"",
 		),
 		Req:  proxytest.NewTestRequestWithHost("host"),
 		Addr: netip.MustParseAddrPort("1.2.3.0:1234"),

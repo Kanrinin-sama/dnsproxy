@@ -28,7 +28,7 @@ type pendingRequests interface {
 // defaultPendingRequests is a default implementation of the [pendingRequests]
 // interface.  It must be created with [newDefaultPendingRequests].
 type defaultPendingRequests struct {
-	storage *syncutil.Map[string, *pendingRequest]
+	storage *syncutil.Map[requestKey, *pendingRequest]
 }
 
 // pendingRequest is a structure that stores the query state and result.
@@ -51,7 +51,7 @@ type pendingRequest struct {
 // newDefaultPendingRequests creates a new instance of DefaultPendingRequests.
 func newDefaultPendingRequests() (pr *defaultPendingRequests) {
 	return &defaultPendingRequests{
-		storage: syncutil.NewMap[string, *pendingRequest](),
+		storage: syncutil.NewMap[requestKey, *pendingRequest](),
 	}
 }
 
@@ -64,19 +64,13 @@ func (pr *defaultPendingRequests) queue(
 	ctx context.Context,
 	dctx *DNSContext,
 ) (loaded bool, err error) {
-	var key []byte
-	if dctx.ReqECS != nil {
-		ones, _ := dctx.ReqECS.Mask.Size()
-		key = msgToKeyWithSubnet(dctx.Req, dctx.ReqECS.IP, ones)
-	} else {
-		key = msgToKey(dctx.Req)
-	}
+	key := pendingRequestKey(dctx)
 
 	req := &pendingRequest{
 		finish: make(chan struct{}),
 	}
 
-	pending, loaded := pr.storage.LoadOrStore(string(key), req)
+	pending, loaded := pr.storage.LoadOrStore(key, req)
 	if !loaded {
 		return false, nil
 	}
@@ -99,17 +93,11 @@ func (pr *defaultPendingRequests) queue(
 
 // done implements the [pendingRequests] interface for [defaultPendingRequests].
 func (pr *defaultPendingRequests) done(ctx context.Context, dctx *DNSContext, err error) {
-	var key []byte
-	if dctx.ReqECS != nil {
-		ones, _ := dctx.ReqECS.Mask.Size()
-		key = msgToKeyWithSubnet(dctx.Req, dctx.ReqECS.IP, ones)
-	} else {
-		key = msgToKey(dctx.Req)
-	}
+	key := pendingRequestKey(dctx)
 
-	pending, ok := pr.storage.Load(string(key))
+	pending, ok := pr.storage.Load(key)
 	if !ok {
-		panic(fmt.Errorf("loading pending request: key %x: %w", key, errors.ErrNoValue))
+		panic(fmt.Errorf("loading pending request: key %x: %w", key.query, errors.ErrNoValue))
 	}
 
 	pending.resolveErr = err
@@ -125,7 +113,7 @@ func (pr *defaultPendingRequests) done(ctx context.Context, dctx *DNSContext, er
 
 	pending.cloneDNSCtx = cloneCtx
 
-	pr.storage.Delete(string(key))
+	pr.storage.Delete(key)
 	close(pending.finish)
 }
 

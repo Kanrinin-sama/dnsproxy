@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -174,10 +175,16 @@ func (p *dnsOverQUIC) Exchange(ctx context.Context, req *dns.Msg) (resp *dns.Msg
 	//
 	// See https://www.rfc-editor.org/rfc/rfc9250#section-4.2.1.
 	id := req.Id
+	req = req.Copy()
 	req.Id = 0
+	for _, rr := range req.Extra {
+		if opt, ok := rr.(*dns.OPT); ok {
+			opt.Option = slices.DeleteFunc(opt.Option, func(option dns.EDNS0) bool {
+				return option.Option() == dns.EDNS0TCPKEEPALIVE
+			})
+		}
+	}
 	defer func() {
-		// Restore the original ID to not break compatibility with proxies.
-		req.Id = id
 		if resp != nil {
 			resp.Id = id
 		}

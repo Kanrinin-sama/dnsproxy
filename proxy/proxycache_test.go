@@ -4,6 +4,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,7 @@ func newA(tb testing.TB, name, addr string) (rr dns.RR) {
 func TestCacheResp_scopeZero_keysOnRequestSubnet(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:                 testLogger,
-		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 		EnableEDNSClientSubnet: true,
 		CacheEnabled:           true,
 		CacheSizeBytes:         64 * 1024,
@@ -52,17 +53,17 @@ func TestCacheResp_scopeZero_keysOnRequestSubnet(t *testing.T) {
 
 	// Client B in 198.51.100.0/24 must NOT see A's entry.
 	dB := &DNSContext{Req: req, ReqECS: mustCIDR(t, "198.51.100.0/24")}
-	require.False(t, p.replyFromCache(dB), "client B must not hit client A's cache entry")
+	require.False(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dB), "client B must not hit client A's cache entry")
 
 	// Client A must still hit its own.
 	dA2 := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.113.0/24")}
-	require.True(t, p.replyFromCache(dA2), "client A must hit its own cache entry")
+	require.True(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dA2), "client A must hit its own cache entry")
 }
 
 func TestCacheResp_trustScope_keepsWildcard(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:                 testLogger,
-		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 		EnableEDNSClientSubnet: true,
 		CacheEnabled:           true,
 		CacheSizeBytes:         64 * 1024,
@@ -77,13 +78,13 @@ func TestCacheResp_trustScope_keepsWildcard(t *testing.T) {
 
 	// With scope trusted, any subnet hits the wildcard entry.
 	dB := &DNSContext{Req: req, ReqECS: mustCIDR(t, "198.51.100.0/24")}
-	require.True(t, p.replyFromCache(dB), "wildcard entry must be visible to all clients")
+	require.True(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dB), "wildcard entry must be visible to all clients")
 }
 
 func TestCacheResp_echoedScopeZero_keysOnRequestSubnet(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:                 testLogger,
-		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 		EnableEDNSClientSubnet: true,
 		CacheEnabled:           true,
 		CacheSizeBytes:         64 * 1024,
@@ -106,17 +107,17 @@ func TestCacheResp_echoedScopeZero_keysOnRequestSubnet(t *testing.T) {
 
 	// Client B in 198.51.100.0/24 must NOT see A's entry.
 	dB := &DNSContext{Req: req, ReqECS: mustCIDR(t, "198.51.100.0/24")}
-	require.False(t, p.replyFromCache(dB), "client B must not hit client A's cache entry")
+	require.False(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dB), "client B must not hit client A's cache entry")
 
 	// Client A must still hit its own.
 	dA2 := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.113.0/24")}
-	require.True(t, p.replyFromCache(dA2), "client A must hit its own cache entry")
+	require.True(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dA2), "client A must hit its own cache entry")
 }
 
 func TestCacheResp_honestPartialScope_stillWidens(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:                 testLogger,
-		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 		EnableEDNSClientSubnet: true,
 		CacheEnabled:           true,
 		CacheSizeBytes:         64 * 1024,
@@ -142,7 +143,7 @@ func TestCacheResp_honestPartialScope_stillWidens(t *testing.T) {
 	// A neighbouring /24 that falls within the reported /23 must see the
 	// entry.
 	dC := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.112.0/24")}
-	require.True(t, p.replyFromCache(dC), "neighbouring /24 within the reported /23 scope must hit the entry")
+	require.True(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dC), "neighbouring /24 within the reported /23 scope must hit the entry")
 }
 
 // TestCacheResp_longReqPrefix_truncatedKeyIsReadable makes sure a response
@@ -171,7 +172,7 @@ func TestCacheResp_longReqPrefix_truncatedKeyIsReadable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := mustNew(t, &Config{
 				Logger:                 testLogger,
-				UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+				UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 				EnableEDNSClientSubnet: true,
 				CacheEnabled:           true,
 				CacheSizeBytes:         64 * 1024,
@@ -185,7 +186,7 @@ func TestCacheResp_longReqPrefix_truncatedKeyIsReadable(t *testing.T) {
 			p.cacheResp(&DNSContext{Req: req, Res: resp, ReqECS: mustCIDR(t, tc.reqECS)})
 
 			d := &DNSContext{Req: req, ReqECS: mustCIDR(t, tc.reqECS)}
-			require.True(t, p.replyFromCache(d), "the truncated key must be readable")
+			require.True(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), d), "the truncated key must be readable")
 		})
 	}
 }
@@ -197,7 +198,7 @@ func TestCacheResp_longReqPrefix_truncatedKeyIsReadable(t *testing.T) {
 func TestCacheResp_cacheECSPrefix4_widensKey(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:                 testLogger,
-		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 		EnableEDNSClientSubnet: true,
 		CacheEnabled:           true,
 		CacheSizeBytes:         64 * 1024,
@@ -214,10 +215,10 @@ func TestCacheResp_cacheECSPrefix4_widensKey(t *testing.T) {
 	p.cacheResp(&DNSContext{Req: req, Res: resp, ReqECS: mustCIDR(t, "203.0.113.0/24")})
 
 	dIn := &DNSContext{Req: req, ReqECS: mustCIDR(t, "203.0.99.0/24")}
-	assert.True(t, p.replyFromCache(dIn), "another /24 within the configured /16 must hit")
+	assert.True(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dIn), "another /24 within the configured /16 must hit")
 
 	dOut := &DNSContext{Req: req, ReqECS: mustCIDR(t, "198.51.100.0/24")}
-	assert.False(t, p.replyFromCache(dOut), "a /24 outside the configured /16 must not hit")
+	assert.False(t, p.replyFromCache(testutil.ContextWithTimeout(t, defaultTimeout), dOut), "a /24 outside the configured /16 must not hit")
 }
 
 // TestNew_defaultCacheECSPrefixes makes sure the ECS cache key widths are
@@ -225,11 +226,11 @@ func TestCacheResp_cacheECSPrefix4_widensKey(t *testing.T) {
 func TestNew_defaultCacheECSPrefixes(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:         testLogger,
-		UpstreamConfig: newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig: newTestUpstreamConfig(t, newTestUpstream(t)),
 	})
 
-	assert.Equal(t, uint8(24), p.CacheECSPrefix4)
-	assert.Equal(t, uint8(56), p.CacheECSPrefix6)
+	assert.Equal(t, uint8(24), p.cacheECSPrefix4)
+	assert.Equal(t, uint8(56), p.cacheECSPrefix6)
 }
 
 // TestSetECS_matchesDefaultCacheECSPrefixes makes sure the default cache key
@@ -274,7 +275,7 @@ func TestTruncateECS(t *testing.T) {
 func TestCacheResp_clientECSOnGlobalCache(t *testing.T) {
 	p := mustNew(t, &Config{
 		Logger:         testLogger,
-		UpstreamConfig: newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig: newTestUpstreamConfig(t, newTestUpstream(t)),
 		CacheEnabled:   true,
 		CacheSizeBytes: 64 * 1024,
 		// EnableEDNSClientSubnet is off, so p.cache has no subnet cache.
@@ -302,7 +303,7 @@ func TestCache_perClientECSOverridesGlobal(t *testing.T) {
 	// cache, not the subnet cache.
 	p := mustNew(t, &Config{
 		Logger:                 testLogger,
-		UpstreamConfig:         newTestUpstreamConfig(t, defaultTimeout, testDefaultUpstreamAddr),
+		UpstreamConfig:         newTestUpstreamConfig(t, newTestUpstream(t)),
 		EnableEDNSClientSubnet: true,
 		CacheEnabled:           true,
 		CacheSizeBytes:         64 * 1024,

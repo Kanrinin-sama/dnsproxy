@@ -32,7 +32,7 @@ func (p *Proxy) lookupIPAddr(
 	req := (&dns.Msg{}).SetQuestion(host, qtype)
 
 	// TODO(d.kolyshev): Investigate why the client address is not defined.
-	d := p.newDNSContext(ProtoUDP, req, netip.AddrPort{})
+	d := p.NewDNSContext(ProtoUDP, req, netip.AddrPort{})
 	err := p.Resolve(ctx, d)
 	ch <- &lookupResult{
 		resp: d.Res,

@@ -135,9 +135,9 @@ func newTxts(tb testing.TB, txtDataLen int) (txts []string) {
 	return txts
 }
 
-// newDNSContext returns new DNS request message context with Proto set to
+// NewDNSContext returns new DNS request message context with Proto set to
 // [ProtoUDP].  Constructs request message from the given parameters.
-func newDNSContext(
+func NewDNSContext(
 	domain string,
 	qtype uint16,
 	qclass uint16,
@@ -303,7 +303,7 @@ func TestProxy_Resolve_dnssecCache(t *testing.T) {
 
 	for _, tc := range testCases {
 		ansHdr := tc.wantAns.Header()
-		dctx := newDNSContext(ansHdr.Name, ansHdr.Rrtype, ansHdr.Class, tc.edns, txtDataLen/2)
+		dctx := NewDNSContext(ansHdr.Name, ansHdr.Rrtype, ansHdr.Class, tc.edns, txtDataLen/2)
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(p.cache.items.Clear)
@@ -875,12 +875,12 @@ func TestProxy_Resolve_ecs(t *testing.T) {
 // with it true must reach the upstream with one.
 func TestECSProxy_perClientOverride(t *testing.T) {
 	ansIP := net.IP{4, 3, 2, 1}
-	u := &testUpstream{
-		ans: []dns.RR{&dns.A{
-			Hdr: dns.RR_Header{Rrtype: dns.TypeA, Name: "host.", Ttl: 60},
-			A:   ansIP,
-		}},
-	}
+	ans := []dns.RR{&dns.A{
+		Hdr: dns.RR_Header{Rrtype: dns.TypeA, Name: "host.", Ttl: 60},
+		A:   ansIP,
+	}}
+	var ecsReqIP net.IP
+	u := newTestUpstreamWithExchange(t, newECSReplyHandler(&ans, nil, &ecsReqIP))
 
 	prx := mustNew(t, &Config{
 		Logger: testLogger,
@@ -894,7 +894,7 @@ func TestECSProxy_perClientOverride(t *testing.T) {
 	cli := netip.MustParseAddrPort("1.2.3.0:1234")
 
 	t.Run("client_ecs_disabled", func(t *testing.T) {
-		u.ecsReqIP, u.ecsReqMask = nil, 0
+		ecsReqIP = nil
 
 		cfg := NewCustomUpstreamConfig(
 			&UpstreamConfig{Upstreams: []upstream.Upstream{u}},
@@ -905,18 +905,18 @@ func TestECSProxy_perClientOverride(t *testing.T) {
 		)
 		d := &DNSContext{
 			CustomUpstreamConfig: cfg,
-			Req:                  newHostTestMessage("host"),
+			Req:                  dnsproxytest.NewTestRequestWithHost("host"),
 			Addr:                 cli,
 		}
 
 		err := prx.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), d)
 		require.NoError(t, err)
 
-		assert.Nil(t, u.ecsReqIP)
+		assert.Nil(t, ecsReqIP)
 	})
 
 	t.Run("client_ecs_enabled", func(t *testing.T) {
-		u.ecsReqIP, u.ecsReqMask = nil, 0
+		ecsReqIP = nil
 
 		cfg := NewCustomUpstreamConfig(
 			&UpstreamConfig{Upstreams: []upstream.Upstream{u}},
@@ -927,14 +927,14 @@ func TestECSProxy_perClientOverride(t *testing.T) {
 		)
 		d := &DNSContext{
 			CustomUpstreamConfig: cfg,
-			Req:                  newHostTestMessage("host"),
+			Req:                  dnsproxytest.NewTestRequestWithHost("host"),
 			Addr:                 cli,
 		}
 
 		err := prx.Resolve(testutil.ContextWithTimeout(t, defaultTimeout), d)
 		require.NoError(t, err)
 
-		assert.Equal(t, net.IP{1, 2, 3, 0}, u.ecsReqIP)
+		assert.Equal(t, net.IP{1, 2, 3, 0}, ecsReqIP)
 	})
 }
 

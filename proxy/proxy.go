@@ -252,7 +252,10 @@ type Proxy struct {
 
 	// upstreamMode determines the logic through which upstreams will be used.
 	// If not specified the [proxy.UpstreamModeLoadBalance] is used.
-	upstreamMode UpstreamMode
+	upstreamMode       UpstreamMode
+	trustUpstreamScope bool
+	cacheECSPrefix4    uint8
+	cacheECSPrefix6    uint8
 
 	// upstreamRTTStats maps the upstream address to its round-trip time
 	// statistics.  It's holds the statistics for all upstreams to perform a
@@ -290,7 +293,7 @@ type Proxy struct {
 	// listening.
 	bindRetryIvl time.Duration
 
-	// counter counts message contexts created with [Proxy.newDNSContext].
+	// counter counts message contexts created with [Proxy.NewDNSContext].
 	counter atomic.Uint64
 
 	// cacheOptimisticAnswerTTL is the default TTL for expired cached responses.
@@ -407,6 +410,9 @@ func New(c *Config) (p *Proxy, err error) {
 		cacheOptimistic:           c.CacheOptimistic,
 		cacheEnabled:              c.CacheEnabled,
 		enableEDNSClientSubnet:    c.EnableEDNSClientSubnet,
+		trustUpstreamScope:        c.TrustUpstreamScope,
+		cacheECSPrefix4:           c.CacheECSPrefix4,
+		cacheECSPrefix6:           c.CacheECSPrefix6,
 		dnsSecEnabled:             c.DNSSECEnabled,
 		refuseAny:                 c.RefuseAny,
 		fastestPingTimeout:        c.FastestPingTimeout,
@@ -765,7 +771,7 @@ func (p *Proxy) selectUpstreams(d *DNSContext) (upstreams []upstream.Upstream, i
 	q := d.Req.Question[0]
 	host := q.Name
 
-	if d.RequestedPrivateRDNS != (netip.Prefix{}) || p.shouldStripDNS64(d.Req) {
+	if d.RequestedPrivateRDNS != (netip.Prefix{}) || p.shouldStripDNS64Context(d.logContext, d.Req) {
 		// Use private upstreams.
 		private := p.privateRDNSUpstreamConfig
 		if p.usePrivateRDNS && d.IsPrivateClient && private != nil {
@@ -797,6 +803,7 @@ func (p *Proxy) selectUpstreams(d *DNSContext) (upstreams []upstream.Upstream, i
 // servers.  It returns true if the response actually came from an upstream.  d
 // must not be nil.
 func (p *Proxy) replyFromUpstream(ctx context.Context, d *DNSContext) (ok bool, err error) {
+	ctx = d.ContextWithTrafficPath(ctx)
 	req := d.Req
 
 	upstreams, isPrivate := p.selectUpstreams(d)
@@ -848,7 +855,7 @@ func (p *Proxy) replyFromUpstream(ctx context.Context, d *DNSContext) (ok bool, 
 		p.logger.DebugContext(ctx, "resolved", "upstream", u.Address(), "src", src)
 	}
 
-	unwrapped, stats := collectQueryStats(p.upstreamMode, u, wrapped, wrappedFallbacks)
+	unwrapped, stats := collectQueryStats(mode, u, wrapped, wrappedFallbacks)
 	d.queryStatistics = stats
 
 	p.handleExchangeResult(ctx, d, req, resp, unwrapped)
@@ -907,8 +914,9 @@ const defaultUDPBufSize = 2048
 // upstream servers.  If err is nil, dctx.Res is guaranteed to be non-nil.  dctx
 // must not be nil and must be filled with the client's request.
 func (p *Proxy) Resolve(ctx context.Context, dctx *DNSContext) (err error) {
+	ctx = dctx.ContextWithTrafficPath(ctx)
 	if p.ecsForContext(dctx) {
-		dctx.processECS(p.ednsAddr, p.logger)
+		dctx.processECS(p.ednsAddr, dctx.requestLogger(p.logger))
 	}
 
 	dctx.calcFlagsAndSize()
@@ -1027,7 +1035,7 @@ func (p *Proxy) cacheWorks(dctx *DNSContext) (ok bool) {
 		return true
 	}
 
-	p.logger.Debug("not caching", "reason", reason)
+	dctx.requestLogger(p.logger).Debug("not caching", "reason", reason)
 
 	return false
 }

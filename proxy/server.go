@@ -97,6 +97,11 @@ func (p *Proxy) handleDNSRequest(ctx context.Context, d *DNSContext) (err error)
 	d.Res = p.validateRequest(d)
 	if d.Res == nil {
 		err = p.requestHandler.ServeDNS(ctx, p, d)
+		if d.logContext != nil {
+			ctx = d.logContext
+		} else {
+			ctx = d.ContextWithTrafficPath(ctx)
+		}
 		if errors.Is(err, ErrDrop) {
 			// Don't reply to dropped clients.
 			return nil

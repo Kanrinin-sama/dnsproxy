@@ -157,12 +157,12 @@ func (p *Proxy) handleTCPConnection(
 			return
 		}
 
-		d := p.newDNSContext(proto, req, netutil.NetAddrToAddrPort(conn.RemoteAddr()))
+		d := p.NewDNSContext(proto, req, netutil.NetAddrToAddrPort(conn.RemoteAddr()))
 		d.Conn = conn
 
 		err = p.handleDNSRequest(ctx, d)
 		if err != nil {
-			logWithNonCrit(ctx, err, "handling request", ProtoTCP, p.logger)
+			logWithNonCrit(ctx, err, "handling request", ProtoTCP, d.requestLogger(p.logger))
 		}
 	}
 }

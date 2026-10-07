@@ -71,6 +71,7 @@ func (p *Proxy) replyFromCache(ctx context.Context, d *DNSContext) (hit bool) {
 			CustomUpstreamConfig: d.CustomUpstreamConfig,
 			ReqECS:               cloneIPNet(d.ReqECS),
 			IsPrivateClient:      d.IsPrivateClient,
+			logContext:           d.logContext,
 		}
 		if d.Req != nil {
 			minCtxClone.Req = d.Req.Copy()
@@ -98,9 +99,10 @@ func cloneIPNet(n *net.IPNet) (clone *net.IPNet) {
 // cache is present in d, it's used first.  d must not be nil.
 func (p *Proxy) cacheResp(d *DNSContext) {
 	dctxCache := p.cacheForContext(d)
+	l := d.requestLogger(p.logger)
 
 	if !p.ecsForContext(d) {
-		dctxCache.set(d.Req, d.Res, d.Upstream, p.logger)
+		dctxCache.set(d.Req, d.Res, d.Upstream, l)
 
 		return
 	}
@@ -119,7 +121,7 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 		// TODO(a.meshkov):  The whole response MUST be dropped if ECS in it
 		// doesn't correspond.
 		if !ecs.IP.Mask(ecs.Mask).Equal(d.ReqECS.IP.Mask(d.ReqECS.Mask)) || ones != reqOnes {
-			p.logger.Debug(
+			l.Debug(
 				"not caching response; subnet mismatch",
 				"ecs", ecs,
 				"req_ecs", d.ReqECS,
@@ -135,10 +137,10 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 		// instead.  A non-zero scope narrower than the request is a bounded,
 		// honest claim and is always honoured below, regardless of
 		// [Config.TrustUpstreamScope].
-		if scope == 0 && !p.TrustUpstreamScope {
-			key := truncateECS(d.ReqECS, p.CacheECSPrefix4, p.CacheECSPrefix6)
-			p.logger.Debug("caching response keyed on request subnet", "ecs", key)
-			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, p.logger)
+		if scope == 0 && !p.trustUpstreamScope {
+			key := truncateECS(d.ReqECS, p.cacheECSPrefix4, p.cacheECSPrefix6)
+			l.Debug("caching response keyed on request subnet", "ecs", key)
+			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, l)
 
 			break
 		}
@@ -153,15 +155,15 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 			ecs.IP = ecs.IP.Mask(ecs.Mask)
 		}
 
-		p.logger.Debug("caching response", "ecs", ecs)
+		l.Debug("caching response", "ecs", ecs)
 
-		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, ecs, p.logger)
+		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, ecs, l)
 	case d.ReqECS != nil:
 		// The upstream's response carries no EDNS Client Subnet option at
 		// all, so there's no SCOPE PREFIX-LENGTH to go by.  A response that
 		// does echo the option, even with SCOPE=0, is handled above — this
 		// case is strictly "the upstream said nothing".
-		if p.TrustUpstreamScope {
+		if p.trustUpstreamScope {
 			// Treat the absence of scope information the same way an
 			// explicit SCOPE PREFIX-LENGTH of zero is treated above: valid
 			// for all addresses.  This is the pre-existing behavior, but it
@@ -170,18 +172,18 @@ func (p *Proxy) cacheResp(d *DNSContext) {
 			// keying such responses on the request's own subnet.  That only
 			// ever narrows the cache key, so the cost is hit rate, never a
 			// wrong answer.
-			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, &net.IPNet{IP: nil, Mask: nil}, p.logger)
+			dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, &net.IPNet{IP: nil, Mask: nil}, l)
 
 			break
 		}
 
 		// Key on the request's own subnet instead of caching for everyone;
 		// see [Config.TrustUpstreamScope].
-		key := truncateECS(d.ReqECS, p.CacheECSPrefix4, p.CacheECSPrefix6)
-		p.logger.Debug("caching response keyed on request subnet", "ecs", key)
-		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, p.logger)
+		key := truncateECS(d.ReqECS, p.cacheECSPrefix4, p.cacheECSPrefix6)
+		l.Debug("caching response keyed on request subnet", "ecs", key)
+		dctxCache.setWithSubnet(d.Req, d.Res, d.Upstream, key, l)
 	default:
-		dctxCache.set(d.Req, d.Res, d.Upstream, p.logger)
+		dctxCache.set(d.Req, d.Res, d.Upstream, l)
 	}
 }
 

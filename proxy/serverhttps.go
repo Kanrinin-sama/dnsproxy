@@ -252,13 +252,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	d := p.newDNSContext(ProtoHTTPS, req, raddr)
+	d := p.NewDNSContext(ProtoHTTPS, req, raddr)
 	d.HTTPRequest = r
 	d.HTTPResponseWriter = w
 
 	err = p.handleDNSRequest(ctx, d)
 	if err != nil {
-		p.logger.DebugContext(ctx, "handling dns request", "proto", d.Proto, slogutil.KeyError, err)
+		d.requestLogger(p.logger).DebugContext(ctx, "handling dns request", "proto", d.Proto, slogutil.KeyError, err)
 	}
 }
 

@@ -122,7 +122,7 @@ func (h *dnsCryptHandler) ServeDNS(
 	req *dns.Msg,
 ) (err error) {
 	addr := netutil.NetAddrToAddrPort(rw.RemoteAddr())
-	d := h.proxy.newDNSContext(ProtoDNSCrypt, req, addr)
+	d := h.proxy.NewDNSContext(ProtoDNSCrypt, req, addr)
 	d.DNSCryptResponseWriter = rw
 
 	ctx, cancel := h.proxy.reqCtx.New(ctx)

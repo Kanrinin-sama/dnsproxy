@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/hex"
 	"log/slog"
 
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
@@ -29,7 +28,7 @@ type unit = struct{}
 
 // optimisticResolver is used to eventually resolve expired cached requests.
 type optimisticResolver struct {
-	reqs *syncutil.Map[string, unit]
+	reqs *syncutil.Map[requestKey, unit]
 	cr   cachingResolver
 }
 
@@ -37,7 +36,7 @@ type optimisticResolver struct {
 // cr must not be nil.
 func newOptimisticResolver(cr cachingResolver) (s *optimisticResolver) {
 	return &optimisticResolver{
-		reqs: syncutil.NewMap[string, unit](),
+		reqs: syncutil.NewMap[requestKey, unit](),
 		cr:   cr,
 	}
 }
@@ -54,11 +53,11 @@ func (s *optimisticResolver) resolveOnce(
 ) {
 	defer slogutil.RecoverAndLog(ctx, l)
 
-	keyHexed := hex.EncodeToString(key)
-	if _, ok := s.reqs.LoadOrStore(keyHexed, unit{}); ok {
+	scopedKey := newRequestKey(dctx, key)
+	if _, ok := s.reqs.LoadOrStore(scopedKey, unit{}); ok {
 		return
 	}
-	defer s.reqs.Delete(keyHexed)
+	defer s.reqs.Delete(scopedKey)
 
 	// NOTE: Discard the context deadline to prevent cancellation during
 	// refresh.

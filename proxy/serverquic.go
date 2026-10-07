@@ -374,14 +374,14 @@ func (p *Proxy) handleQUICStream(ctx context.Context, stream *quic.Stream, conn 
 		return
 	}
 
-	d := p.newDNSContext(ProtoQUIC, req, netutil.NetAddrToAddrPort(conn.RemoteAddr()))
+	d := p.NewDNSContext(ProtoQUIC, req, netutil.NetAddrToAddrPort(conn.RemoteAddr()))
 	d.QUICStream = stream
 	d.QUICConnection = conn
 	d.DoQVersion = doqVersion
 
 	err = p.handleDNSRequest(ctx, d)
 	if err != nil {
-		p.logger.DebugContext(
+		d.requestLogger(p.logger).DebugContext(
 			ctx,
 			"error handling dns request",
 			"proto", d.Proto,
@@ -396,7 +396,7 @@ func (p *Proxy) respondQUIC(d *DNSContext) error {
 
 	if resp == nil {
 		// If no response has been written, close the QUIC connection now.
-		closeQUICConn(d.QUICConnection, DoQCodeInternalError, p.logger)
+		closeQUICConn(d.QUICConnection, DoQCodeInternalError, d.requestLogger(p.logger))
 
 		return errors.Error("no response to write")
 	}
