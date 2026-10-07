@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 
 	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/errors"
@@ -103,6 +104,10 @@ func (p *Proxy) handleDNSRequest(ctx context.Context, d *DNSContext) (err error)
 			ctx = d.ContextWithTrafficPath(ctx)
 		}
 		if errors.Is(err, ErrDrop) {
+			if d.Proto == ProtoHTTPS {
+				http.Error(d.HTTPResponseWriter, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			}
+
 			// Don't reply to dropped clients.
 			return nil
 		}
