@@ -50,7 +50,7 @@ var _ proxy.Middleware = (*middleware)(nil)
 // should be sent.
 func (m *middleware) Wrap(h proxy.Handler) (wrapped proxy.Handler) {
 	f := func(ctx context.Context, p *proxy.Proxy, dctx *proxy.DNSContext) (err error) {
-		if dctx.Proto == proxy.ProtoUDP && m.isRatelimited(dctx.Addr.Addr()) {
+		if m.isRatelimited(dctx.Addr.Addr()) {
 			m.logger.Debug("ratelimited based on ip only", "addr", dctx.Addr)
 
 			return proxy.ErrDrop

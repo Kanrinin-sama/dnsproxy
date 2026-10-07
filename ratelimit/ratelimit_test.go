@@ -40,7 +40,7 @@ func TestMiddleware_Wrap(t *testing.T) {
 		name    string
 		want    int
 	}{{
-		name: "tcp_not_ratelimited",
+		name: "tcp_ratelimited",
 		config: &ratelimit.Config{
 			Logger:        testLogger,
 			Ratelimit:     1,
@@ -51,8 +51,8 @@ func TestMiddleware_Wrap(t *testing.T) {
 			Addr:  testAddr,
 			Proto: proxy.ProtoTCP,
 		},
-		want:    2,
-		wantErr: nil,
+		want:    1,
+		wantErr: proxy.ErrDrop,
 	}, {
 		name: "ratelimited",
 		config: &ratelimit.Config{
